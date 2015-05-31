@@ -109,7 +109,7 @@ class RNTN:
 			if not node.right.fprop:
 				c, t = self.forward(node.left, correct, guess)
 				cost, total = cost+c,total+t
-			children = [node.left.hActs1, node.right.hActs1]
+			children = np.concatenate(node.left.hActs1, node.right.hActs1)
 			node.hActs1 = f(children.T.dot(self.V).dot(children) + self.W.dot(children) + self.b)
 		
 		node.probs = softmax(self.Ws.dot(node.hActs1) + self.bs)
@@ -130,7 +130,29 @@ class RNTN:
         #  - node: your current node in the parse tree
         #  - error: error that has been passed down from a previous iteration
         ################
+	
+		#derivative wrt Ws and bs 
+		true = [0]*len(node.probs)
+		true[node.label] = 1
+		deltasm = node.probs - true
+		self.dWs += np.outer(deltasm,node.hActs1)		
+		self.dbs += deltasm
 
+		#deltas described in the paper 
+		deltas = self.Ws.dot(diff)*fprime(node.hActs1) #delta due to softmax
+		if error: deltacom = error + deltas #add the backproped delta to it
+
+		if node.isLeaf: 
+			self.dL[node.word] += deltacom #eq. to node with input 1 and weight L[ind]
+		else:
+			children = np.concatenate(node.left.hActs1, node.right.hActs1)	
+			self.dW += np.outer(deltacom, children)
+			self.db += deltacom
+			self.dV += deltacom.dot(children).dot(children.T)
+			
+			deltadown = W.T.dot(deltacom) + deltadown.dot(self.V+self.V.T).dot(children)
+			self.backProp(node.left, deltadown[:self.wvecDim])	
+			self.backProp(node.right, deltadown[self.wvecDim:])	
         
     def updateParams(self,scale,update,log=False):
         """
