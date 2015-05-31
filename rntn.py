@@ -37,25 +37,84 @@ class RNTN:
         self.dbs = np.empty((self.outputDim))
 
     def costAndGrad(self,mbdata,test=False): 
+        """
+        Each datum in the minibatch is a tree.
+        Forward prop each tree.
+        Backprop each tree.
+        Returns
+           cost
+           Gradient w.r.t. V, W, Ws, b, bs
+           Gradient w.r.t. L in sparse form.
+
+        or if in test mode
+        Returns 
+           cost, correctArray, guessArray, total
+           
+        """
         cost = 0.0
         correct = []
         guess = []
         total = 0.0
 
-        return cost, []
+        self.L,self.V,self.W,self.b,self.Ws,self.bs = self.stack
+
+        # Zero gradients
+		self.V[:] = 0
+        self.dW[:] = 0
+        self.db[:] = 0
+        self.dWs[:] = 0
+        self.dbs[:] = 0
+        self.dL = collections.defaultdict(self.defaultVec)
+
+        # Forward prop each tree in minibatch
+        for tree in mbdata: 
+            c,tot = self.forwardProp(tree.root,correct,guess)
+            cost += c
+            total += tot
+        if test:
+            return (1./len(mbdata))*cost,correct,guess,total
+
+        # Back prop each tree in minibatch
+        for tree in mbdata:
+            self.backProp(tree.root)
+
+        # scale cost and grad by mb size
+        scale = (1./self.mbSize)
+        for v in self.dL.itervalues():
+            v *=scale
+        
+        # Add L2 Regularization 
+        cost += (self.rho/2)*np.sum(self.W**2)
+        cost += (self.rho/2)*np.sum(self.Ws**2)
+
+        return scale*cost,[self.dL,scale*(self.dW + self.rho*self.W),scale*self.db,
+                           scale*(self.dWs+self.rho*self.Ws),scale*self.dbs]
 
     def forwardProp(self,node):
-        cost = total = 0.0
+        cost  =  total = 0.0 # cost should be a running number and total is the total examples we have seen used in accuracy reporting later
+        ################
+        # TODO: Implement the recursive forwardProp function
+        #  - you should update node.probs, node.hActs1, node.fprop, and cost
+        #  - node: your current node in the parse tree
+        #  - correct: this is a running list of truth labels
+        #  - guess: this is a running list of guess that our model makes
+        #     (we will use both correct and guess to make our confusion matrix)
+        ################
 
         
 
-        return cost,total + 1
-
+        return cost, total + 1
 
     def backProp(self,node,error=None):
-
         # Clear nodes
         node.fprop = False
+
+        ################
+        # TODO: Implement the recursive backProp function
+        #  - you should update self.dWs, self.dbs, self.dW, self.db, and self.dL[node.word] accordingly
+        #  - node: your current node in the parse tree
+        #  - error: error that has been passed down from a previous iteration
+        ################
 
         
     def updateParams(self,scale,update,log=False):
