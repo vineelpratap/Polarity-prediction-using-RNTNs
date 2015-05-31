@@ -100,8 +100,23 @@ class RNTN:
         #  - guess: this is a running list of guess that our model makes
         #     (we will use both correct and guess to make our confusion matrix)
         ################
-
-        
+		if node.isLeaf:
+			node.hActs1 = self.L[:,node.word]	
+        else:
+			if not node.left.fprop:
+				c, t = self.forward(node.left, correct, guess)
+				cost, total = cost+c,total+t
+			if not node.right.fprop:
+				c, t = self.forward(node.left, correct, guess)
+				cost, total = cost+c,total+t
+			children = [node.left.hActs1, node.right.hActs1]
+			node.hActs1 = f(children.T.dot(self.V).dot(children) + self.W.dot(children) + self.b)
+		
+		node.probs = softmax(self.Ws.dot(node.hActs1) + self.bs)
+		cost = cost -log(node.probs[node.label])
+		correct.append(node.label)
+		guess.append(np.argmax(node.probs))
+		node.fprop = True
 
         return cost, total + 1
 
