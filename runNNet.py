@@ -54,7 +54,7 @@ def run(args=None):
         default="models/test.bin")
     parser.add_option("--data",dest="data",type="string",default="train")
 
-    parser.add_option("--model",dest="model",type="string",default="RNN")
+    parser.add_option("--model",dest="model",type="string",default="RNTN")
 
     (opts,args)=parser.parse_args(args)
 

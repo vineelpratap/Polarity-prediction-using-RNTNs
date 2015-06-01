@@ -2,6 +2,16 @@ import numpy as np
 import collections
 np.seterr(over='raise',under='raise')
 
+
+def softmax(v):
+	e = np.exp(v)
+	e = e/np.sum(e)
+	return e
+
+def fprime(x):
+	der = np.ones(x.shape) - x**2
+	return der
+
 class RNTN:
 
     def __init__(self,wvecDim,outputDim,numWords,mbSize=30,rho=1e-6):
@@ -56,10 +66,10 @@ class RNTN:
         guess = []
         total = 0.0
 
-        self.L,self.V,self.W,self.b,self.Ws,self.bs = self.stack
+       	self.L,self.V,self.W,self.b,self.Ws,self.bs = self.stack
 
         # Zero gradients
-		self.V[:] = 0
+        self.V[:] = 0
         self.dW[:] = 0
         self.db[:] = 0
         self.dWs[:] = 0
@@ -90,7 +100,7 @@ class RNTN:
         return scale*cost,[self.dL,scale*(self.dW + self.rho*self.W),scale*self.db,
                            scale*(self.dWs+self.rho*self.Ws),scale*self.dbs]
 
-    def forwardProp(self,node):
+    def forwardProp(self,node,correct = [], guess= [], test = False):
         cost  =  total = 0.0 # cost should be a running number and total is the total examples we have seen used in accuracy reporting later
         ################
         # TODO: Implement the recursive forwardProp function
@@ -100,23 +110,23 @@ class RNTN:
         #  - guess: this is a running list of guess that our model makes
         #     (we will use both correct and guess to make our confusion matrix)
         ################
-		if node.isLeaf:
+        if node.isLeaf:
 			node.hActs1 = self.L[:,node.word]	
         else:
 			if not node.left.fprop:
-				c, t = self.forward(node.left, correct, guess)
+				c, t = self.forwardProp(node.left, correct, guess)
 				cost, total = cost+c,total+t
 			if not node.right.fprop:
-				c, t = self.forward(node.left, correct, guess)
+				c, t = self.forwardProp(node.right, correct, guess)
 				cost, total = cost+c,total+t
-			children = np.concatenate(node.left.hActs1, node.right.hActs1)
-			node.hActs1 = f(children.T.dot(self.V).dot(children) + self.W.dot(children) + self.b)
+			children = np.concatenate((node.left.hActs1, node.right.hActs1))
+			node.hActs1 = np.tanh(children.T.dot(self.V).dot(children) + self.W.dot(children) + self.b)
 		
-		node.probs = softmax(self.Ws.dot(node.hActs1) + self.bs)
-		cost = cost -log(node.probs[node.label])
-		correct.append(node.label)
-		guess.append(np.argmax(node.probs))
-		node.fprop = True
+        node.probs = softmax(self.Ws.dot(node.hActs1) + self.bs)
+        cost = cost -np.log(node.probs[node.label])
+        correct.append(node.label)
+        guess.append(np.argmax(node.probs))
+        node.fprop = True
 
         return cost, total + 1
 
@@ -132,27 +142,32 @@ class RNTN:
         ################
 	
 		#derivative wrt Ws and bs 
-		true = [0]*len(node.probs)
-		true[node.label] = 1
-		deltasm = node.probs - true
-		self.dWs += np.outer(deltasm,node.hActs1)		
-		self.dbs += deltasm
+        true = [0]*len(node.probs)
+        true[node.label] = 1
+        deltasm = node.probs - true
+        self.dWs += np.outer(deltasm,node.hActs1)		
+        self.dbs += deltasm
 
 		#deltas described in the paper 
-		deltas = self.Ws.dot(diff)*fprime(node.hActs1) #delta due to softmax
-		if error: deltacom = error + deltas #add the backproped delta to it
+        deltas = self.Ws.T.dot(deltasm)*fprime(node.hActs1) #delta due to softmax
+        deltacom = deltas
+        print deltacom.shape
+        if error: deltacom = error + deltas #add the backproped delta to it
 
-		if node.isLeaf: 
-			self.dL[node.word] += deltacom #eq. to node with input 1 and weight L[ind]
-		else:
-			children = np.concatenate(node.left.hActs1, node.right.hActs1)	
-			self.dW += np.outer(deltacom, children)
-			self.db += deltacom
-			self.dV += deltacom.dot(children).dot(children.T)
+        if node.isLeaf: 
+            self.dL[node.word] += deltacom #eq. to node with input 1 and weight L[ind]
+        else:
+            children = np.concatenate((node.left.hActs1, node.right.hActs1))	
+            print children.shape
+            self.dW += np.outer(deltacom, children)
+            self.db += deltacom
 			
-			deltadown = W.T.dot(deltacom) + deltadown.dot(self.V+self.V.T).dot(children)
-			self.backProp(node.left, deltadown[:self.wvecDim])	
-			self.backProp(node.right, deltadown[self.wvecDim:])	
+            tomult = (deltacom, children, children)
+            self.dV += reduce(np.multiply, np.ix_(*tomult))
+			
+            deltadown = self.W.T.dot(deltacom) + deltacom.dot(self.V+self.V.T).dot(children)
+            self.backProp(node.left, deltadown[:self.wvecDim])	
+            self.backProp(node.right, deltadown[self.wvecDim:])	
         
     def updateParams(self,scale,update,log=False):
         """
