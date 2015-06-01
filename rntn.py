@@ -4,7 +4,7 @@ np.seterr(over='raise',under='raise')
 
 
 def softmax(v):
-	e = np.exp(v)
+	e = np.exp(v - max(v))
 	e = e/np.sum(e)
 	return e
 
@@ -38,6 +38,7 @@ class RNTN:
         self.bs = np.zeros((self.outputDim))
 
         self.stack = [self.L, self.V, self.W, self.b, self.Ws, self.bs]
+        self.stack_vars = ['L', 'V', 'W', 'b', 'Ws', 'bs']
 
         # Gradients
         self.dV = np.empty((self.wvecDim,2*self.wvecDim,2*self.wvecDim))
@@ -96,8 +97,9 @@ class RNTN:
         # Add L2 Regularization 
         cost += (self.rho/2)*np.sum(self.W**2)
         cost += (self.rho/2)*np.sum(self.Ws**2)
+        cost += (self.rho/2)*np.sum(self.V**2)
 
-        return scale*cost,[self.dL,scale*(self.dW + self.rho*self.W),scale*self.db,
+        return scale*cost,[self.dL,scale*(self.dV + self.rho*self.V) ,scale*(self.dW + self.rho*self.W),scale*self.db,
                            scale*(self.dWs+self.rho*self.Ws),scale*self.dbs]
 
     def forwardProp(self,node,correct = [], guess= [], test = False):
@@ -123,7 +125,7 @@ class RNTN:
 			node.hActs1 = np.tanh(children.T.dot(self.V).dot(children) + self.W.dot(children) + self.b)
 		
         node.probs = softmax(self.Ws.dot(node.hActs1) + self.bs)
-        cost = cost -np.log(node.probs[node.label])
+        cost = cost - np.log(node.probs[node.label])
         correct.append(node.label)
         guess.append(np.argmax(node.probs))
         node.fprop = True
@@ -151,21 +153,22 @@ class RNTN:
 		#deltas described in the paper 
         deltas = self.Ws.T.dot(deltasm)*fprime(node.hActs1) #delta due to softmax
         deltacom = deltas
-        print deltacom.shape
-        if error: deltacom = error + deltas #add the backproped delta to it
+
+        if not error is None: 
+            deltacom = error + deltas #add the backproped delta to it
 
         if node.isLeaf: 
             self.dL[node.word] += deltacom #eq. to node with input 1 and weight L[ind]
         else:
             children = np.concatenate((node.left.hActs1, node.right.hActs1))	
-            print children.shape
             self.dW += np.outer(deltacom, children)
             self.db += deltacom
 			
             tomult = (deltacom, children, children)
             self.dV += reduce(np.multiply, np.ix_(*tomult))
-			
-            deltadown = self.W.T.dot(deltacom) + deltacom.dot(self.V+self.V.T).dot(children)
+            #self.dV += np.kron(deltacom, np.outer(children, children)).T.reshape(self.V.shape)
+            
+            deltadown = self.W.T.dot(deltacom) + np.tensordot(deltacom, self.V+self.V.transpose(0,2,1), axes=([0],[0])).dot(children)
             self.backProp(node.left, deltadown[:self.wvecDim])	
             self.backProp(node.right, deltadown[self.wvecDim:])	
         
@@ -200,11 +203,15 @@ class RNTN:
     def check_grad(self,data,epsilon=1e-6):
 
         cost, grad = self.costAndGrad(data)
-        err1 = 0.0
-        count = 0.0
+        
 
-        print "Checking dW... (might take a while)"
+        
+        cnt = 1
         for W,dW in zip(self.stack[1:],grad[1:]):
+            print "Checking Gradient for %s..." %(self.stack_vars[cnt])
+            cnt += 1
+            err1 = 0.0
+            count = 0.0
             W = W[...,None,None] # add dimension since bias is flat
             dW = dW[...,None,None] 
             for i in xrange(W.shape[0]):
@@ -218,17 +225,18 @@ class RNTN:
                         #print "Analytic %.9f, Numerical %.9f, Relative Error %.9f"%(dW[i,j,k],numGrad,err)
                         err1+=err
                         count+=1
-        if 0.001 > err1/count:
-            print "Grad Check Passed for dW"
-        else:
-            print "Grad Check Failed for dW: Sum of Error = %.9f" % (err1/count)
+            if 0.001 > err1/count:
+                print "Passed :)"
+            else:
+                print "Failed : Sum of Error = %.9f " % (err1/count)
+
 
         # check dL separately since dict
         dL = grad[0]
         L = self.stack[0]
         err2 = 0.0
         count = 0.0
-        print "Checking dL..."
+        print "Checking Gradient for L..."
         for j in dL.iterkeys():
             for i in xrange(L.shape[0]):
                 L[i,j] += epsilon
@@ -241,9 +249,9 @@ class RNTN:
                 count+=1
 
         if 0.001 > err2/count:
-            print "Grad Check Passed for dL"
+            print "Passed :)"
         else:
-            print "Grad Check Failed for dL: Sum of Error = %.9f" % (err2/count)
+            print "Failed : Sum of Error = %.9f" % (err2/count)
 
 if __name__ == '__main__':
 
